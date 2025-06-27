@@ -21,6 +21,39 @@ class_names = [
     'Tomato_Yellow_Leaf_Curl_Virus'
 ]
 
+def detect_leaves(frame):
+    """Detect leaf-like objects in the frame using computer vision techniques"""
+    # Convert to HSV for better green detection
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Define range for green colors (leaves)
+    lower_green = np.array([35, 40, 40])
+    upper_green = np.array([85, 255, 255])
+
+    # Create mask for green colors
+    mask = cv2.inRange(hsv, lower_green, upper_green)
+
+    # Apply morphological operations to clean up the mask
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+    # Find contours
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Filter contours by area
+    leaf_boxes = []
+    min_area = 1000
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > min_area:
+            x, y, w, h = cv2.boundingRect(contour)
+            if w > 50 and h > 50:  # Minimum size filter
+                leaf_boxes.append((x, y, w, h))
+
+    return leaf_boxes
+
 def preprocess_frame(frame):
     # Resize to 256x256 (model input size)
     img = cv2.resize(frame, (256, 256))
@@ -56,13 +89,30 @@ else:
             st.error("Error: Could not read frame from webcam.")
             break
 
-        # Predict disease
-        predicted_class, confidence = predict_frame(frame)
+        # Detect leaves and get bounding boxes
+        leaf_boxes = detect_leaves(frame)
 
-        # Overlay prediction on frame
-        label = f"{predicted_class} ({confidence:.2f}%)"
-        cv2.putText(frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                    1, (0, 255, 0), 2, cv2.LINE_AA)
+        # For each detected leaf, predict disease
+        for x, y, w, h in leaf_boxes:
+            # Extract leaf region
+            leaf_roi = frame[y:y+h, x:x+w]
+
+            # Predict disease for this leaf region
+            predicted_class, confidence = predict_frame(leaf_roi)
+
+            # Choose color based on health status
+            if 'Healthy' in predicted_class:
+                box_color = (0, 255, 0)  # Green for healthy
+            else:
+                box_color = (0, 0, 255)  # Red for diseased
+
+            # Draw bounding box
+            cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
+
+            # Draw label with class name and confidence
+            label = f"{predicted_class} ({confidence:.2f}%)"
+            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255, 255, 255), 2, cv2.LINE_AA)
 
         # Convert BGR (OpenCV) to RGB (Streamlit)
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
