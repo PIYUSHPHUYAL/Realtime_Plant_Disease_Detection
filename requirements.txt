@@ -1,0 +1,6 @@
+ultralytics
+streamlit
+numpy
+cv2
+tensorflow
+streamlit_webrtc
